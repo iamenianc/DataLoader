@@ -16,24 +16,28 @@ person's staging tables stay separate.
 
 ## Running it
 
-You don't need to remember any command-line switches — just run it and
-answer the questions:
+You don't need to remember any command-line switches — just run it from the
+folder that holds your spreadsheet and answer the questions:
 
 ```
 dotnet run --project ExcelStage
 ```
 
-It will prompt you for:
+It guides you step by step:
 
-| Prompt              | Example                     | Notes                                   |
-| ------------------- | --------------------------- | --------------------------------------- |
-| Excel workbook path | `C:\data\customers.xlsx`    | Must be an existing `.xlsx` file        |
-| Worksheet name      | `Sheet1`                    | Leave blank for the first worksheet     |
-| SQL Server          | `DBPROD-01`                 | Server name or `host\instance`          |
-| Database name       | `Sales`                     | Must already exist                      |
-| Staging table name  | `customers`                 | Your login is prefixed automatically    |
+| Step               | How you choose it                                                        |
+| ------------------ | ----------------------------------------------------------------------- |
+| Excel workbook     | Pick from the `.xlsx` / `.xlsm` / `.xlsb` files in the current folder (Up/Down arrows, Enter), or choose "Enter a path manually" |
+| Worksheet          | Pick from the workbook's sheets with the arrow keys (auto-selected if there's only one) |
+| SQL Server         | Type the server name, e.g. `DBPROD-01` or `localhost\SQLEXPRESS`         |
+| Database           | Pick from the databases on that server with the arrow keys, or enter one manually |
+| Staging table name | Type a name — your login is prefixed automatically                      |
 
-Before anything is written it shows a summary and asks you to confirm.
+In every list: **Up/Down** moves, **Enter** confirms, **Esc** cancels. Before
+anything is written it shows a summary and asks you to confirm.
+
+> `.xlsb` (binary) workbooks are listed but can't be read — re-save them as
+> `.xlsx` or `.xlsm` in Excel first.
 
 ## Connection
 

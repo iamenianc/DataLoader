@@ -16,6 +16,19 @@ public sealed class ExcelSheet
 
 public static class ExcelReader
 {
+    /// <summary>Returns the worksheet names in the workbook, in tab order.</summary>
+    public static List<string> GetWorksheetNames(string path)
+    {
+        using var document = SpreadsheetDocument.Open(path, isEditable: false);
+        var workbookPart = document.WorkbookPart
+            ?? throw new InvalidDataException("Workbook part is missing; the file is not a valid Excel workbook.");
+
+        return workbookPart.Workbook.Sheets?.Elements<Sheet>()
+            .Select(s => s.Name?.Value ?? string.Empty)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .ToList() ?? new List<string>();
+    }
+
     public static ExcelSheet Read(string path, string? worksheetName)
     {
         using var document = SpreadsheetDocument.Open(path, isEditable: false);

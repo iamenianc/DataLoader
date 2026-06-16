@@ -9,16 +9,23 @@ PrintBanner();
 try
 {
     // ----- 1. Excel workbook -------------------------------------------------
-    var excelPath = PromptForExistingFile(
-        "Path to the Excel workbook to import (.xlsx)",
-        "e.g. C:\\data\\customers.xlsx");
+    var excelPath = SelectExcelFile();
+    if (excelPath is null)
+    {
+        Console.WriteLine("Cancelled. No file selected.");
+        return 0;
+    }
 
-    var worksheet = PromptOptional(
-        "Worksheet name to import",
-        "Leave blank to use the first worksheet in the workbook");
+    // ----- 2. Worksheet ------------------------------------------------------
+    var worksheet = SelectWorksheet(excelPath);
+    if (worksheet is null)
+    {
+        Console.WriteLine("Cancelled. No worksheet selected.");
+        return 0;
+    }
 
     Console.WriteLine();
-    Console.WriteLine($"Reading '{Path.GetFileName(excelPath)}'...");
+    Console.WriteLine($"Reading '{Path.GetFileName(excelPath)}' / '{worksheet}'...");
     var sheet = ExcelReader.Read(excelPath, worksheet);
     Console.WriteLine($"  Found {sheet.Headers.Count} column(s) and {sheet.Rows.Count} data row(s).");
 
@@ -26,7 +33,7 @@ try
     var columns = ColumnTypeInferrer.Infer(sheet);
     PrintColumnSummary(columns);
 
-    // ----- 2. SQL Server target ---------------------------------------------
+    // ----- 3. SQL Server target ---------------------------------------------
     Console.WriteLine();
     Console.WriteLine("Now let's tell ExcelStage where to load the data.");
 
@@ -34,9 +41,12 @@ try
         "SQL Server name / instance",
         "e.g. DBPROD-01  or  localhost\\SQLEXPRESS");
 
-    var database = PromptRequired(
-        "Database name",
-        "The database that already exists on that server");
+    var database = SelectDatabase(server);
+    if (database is null)
+    {
+        Console.WriteLine("Cancelled. No database selected.");
+        return 0;
+    }
 
     var login = SanitizeLogin(Environment.UserName);
     var baseName = PromptRequired(
@@ -44,11 +54,13 @@ try
         $"Your login ('{login}') will be added automatically so the table is yours");
 
     var tableName = $"{login}_{SanitizeLogin(baseName)}";
-    var connectionString = BuildConnectionString(server, database);
+    var connectionString = Sql.BuildConnectionString(server, database);
 
-    // ----- 3. Confirm before touching the database --------------------------
+    // ----- 4. Confirm before touching the database --------------------------
     Console.WriteLine();
     Console.WriteLine("About to run with these settings:");
+    Console.WriteLine($"  Workbook    : {Path.GetFileName(excelPath)}");
+    Console.WriteLine($"  Worksheet   : {worksheet}");
     Console.WriteLine($"  Server      : {server}");
     Console.WriteLine($"  Database    : {database}");
     Console.WriteLine($"  Destination : [{StagingLoader.SchemaName}].[{tableName}]");
@@ -62,7 +74,7 @@ try
         return 0;
     }
 
-    // ----- 4. Create + load --------------------------------------------------
+    // ----- 5. Create + load --------------------------------------------------
     Console.WriteLine();
     Console.WriteLine("Connecting and creating the staging table...");
     var inserted = StagingLoader.Load(connectionString, tableName, columns, sheet);
@@ -87,6 +99,133 @@ catch (SqlException ex)
 catch (Exception ex)
 {
     return Fail(ex.Message);
+}
+
+// ---------------------------------------------------------------------------
+// Selection flows
+// ---------------------------------------------------------------------------
+
+// Returns the chosen workbook path, or null if the user cancelled.
+static string? SelectExcelFile()
+{
+    var directory = Directory.GetCurrentDirectory();
+
+    while (true)
+    {
+        var files = Directory.EnumerateFiles(directory)
+            .Where(IsExcelWorkbook)
+            .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Console.WriteLine();
+        Console.WriteLine($"Looking for Excel files in: {directory}");
+        if (files.Count == 0)
+        {
+            Console.WriteLine("  (no .xlsx / .xlsm / .xlsb files found here)");
+        }
+
+        var options = files.Select(f => Path.GetFileName(f)!).ToList();
+        options.Add("Enter a path manually...");
+
+        var choice = Menu.Select("Select an Excel workbook:", options);
+        if (choice < 0)
+        {
+            return null; // Esc
+        }
+
+        if (choice == options.Count - 1)
+        {
+            var manual = PromptForExistingFile(
+                "Full path to the Excel workbook",
+                "e.g. C:\\data\\customers.xlsx");
+            if (IsBinaryWorkbook(manual))
+            {
+                WarnBinaryWorkbook();
+                continue;
+            }
+
+            return manual;
+        }
+
+        var selected = files[choice];
+        if (IsBinaryWorkbook(selected))
+        {
+            WarnBinaryWorkbook();
+            continue;
+        }
+
+        return selected;
+    }
+}
+
+// Returns the chosen worksheet name, or null if cancelled.
+static string? SelectWorksheet(string path)
+{
+    var names = ExcelReader.GetWorksheetNames(path);
+    if (names.Count == 0)
+    {
+        throw new InvalidDataException("The workbook does not contain any worksheets.");
+    }
+
+    if (names.Count == 1)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"Using the only worksheet: '{names[0]}'.");
+        return names[0];
+    }
+
+    var choice = Menu.Select("Select a worksheet:", names);
+    return choice < 0 ? null : names[choice];
+}
+
+// Returns the chosen database name, or null if cancelled.
+static string? SelectDatabase(string server)
+{
+    List<string> databases;
+    try
+    {
+        Console.WriteLine();
+        Console.WriteLine($"Connecting to '{server}' to list databases...");
+        databases = Sql.ListDatabases(server);
+    }
+    catch (SqlException ex)
+    {
+        Console.WriteLine($"  ! Could not list databases automatically ({ex.Message.Trim()}).");
+        return PromptRequired("Database name", "Type the database name to use");
+    }
+
+    if (databases.Count == 0)
+    {
+        Console.WriteLine("  ! No user databases were returned.");
+        return PromptRequired("Database name", "Type the database name to use");
+    }
+
+    var options = new List<string>(databases) { "Enter a name manually..." };
+    var choice = Menu.Select("Select a database:", options);
+    if (choice < 0)
+    {
+        return null;
+    }
+
+    return choice == options.Count - 1
+        ? PromptRequired("Database name", "Type the database name to use")
+        : databases[choice];
+}
+
+static bool IsExcelWorkbook(string path)
+{
+    var ext = Path.GetExtension(path).ToLowerInvariant();
+    return ext is ".xlsx" or ".xlsm" or ".xlsb";
+}
+
+static bool IsBinaryWorkbook(string path) =>
+    Path.GetExtension(path).ToLowerInvariant() == ".xlsb";
+
+static void WarnBinaryWorkbook()
+{
+    Console.WriteLine();
+    Console.WriteLine("  ! .xlsb (binary) workbooks can't be read by this tool.");
+    Console.WriteLine("    Please open it in Excel and 'Save As' .xlsx or .xlsm, then try again.");
 }
 
 // ---------------------------------------------------------------------------
@@ -150,19 +289,6 @@ static string PromptRequired(string label, string hint)
     }
 }
 
-static string? PromptOptional(string label, string hint)
-{
-    Console.WriteLine();
-    if (!string.IsNullOrEmpty(hint))
-    {
-        Console.WriteLine($"  ({hint})");
-    }
-
-    Console.Write($"{label}: ");
-    var value = Console.ReadLine();
-    return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-}
-
 static bool PromptYesNo(string label, bool defaultYes)
 {
     var suffix = defaultYes ? "[Y/n]" : "[y/N]";
@@ -195,19 +321,6 @@ static string SanitizeLogin(string raw)
 
     return char.IsDigit(result[0]) ? "_" + result : result;
 }
-
-static string BuildConnectionString(string server, string database) =>
-    new SqlConnectionStringBuilder
-    {
-        DataSource = server,
-        InitialCatalog = database,
-        IntegratedSecurity = true,
-        PersistSecurityInfo = false,
-        Pooling = false,
-        MultipleActiveResultSets = false,
-        Encrypt = true,
-        TrustServerCertificate = true
-    }.ConnectionString;
 
 static int Fail(string message)
 {
