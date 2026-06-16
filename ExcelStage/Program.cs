@@ -194,9 +194,13 @@ static string? SelectDatabase(string server)
         Console.WriteLine($"Connecting to '{server}' to list databases...");
         databases = Sql.ListDatabases(server);
     }
-    catch (SqlException ex)
+    catch (Exception ex)
     {
-        Console.WriteLine($"  ! Could not list databases automatically ({ex.Message.Trim()}).");
+        // Listing databases is a convenience only - never let it abort the run.
+        // Any failure (network, login, TLS, etc.) just falls back to typing the name.
+        Console.WriteLine($"  ! Could not list databases automatically.");
+        Console.WriteLine($"    Reason: {ex.Message.Trim()}");
+        Console.WriteLine("    You can still type the database name to continue.");
         return PromptRequired("Database name", "Type the database name to use");
     }
 
