@@ -9,11 +9,11 @@ namespace ExcelStage;
 /// </summary>
 public static class Menu
 {
-    public static int Select(string title, IReadOnlyList<string> items)
+    public static Nav<int> Select(string title, IReadOnlyList<string> items)
     {
         if (items.Count == 0)
         {
-            return -1;
+            return Nav<int>.Back;
         }
 
         if (Console.IsOutputRedirected || Console.IsInputRedirected)
@@ -23,7 +23,7 @@ public static class Menu
 
         Console.WriteLine();
         Console.WriteLine(items.Count > 1 ? $"{title}  ({items.Count} items)" : title);
-        Console.WriteLine("(Up/Down to move, PgUp/PgDn, Enter to choose, Esc to cancel)");
+        Console.WriteLine("(Up/Down move, Enter select | B back, R restart, Esc/Q cancel)");
 
         // Size the visible window to the console, leaving room for the headers.
         var windowHeight = Math.Min(items.Count, Math.Max(3, SafeHeight() - 5));
@@ -71,9 +71,19 @@ public static class Menu
                         index = items.Count - 1;
                         break;
                     case ConsoleKey.Enter:
-                        return index;
+                        return Nav<int>.FromValue(index);
+
+                    // Navigation
+                    case ConsoleKey.LeftArrow:
+                    case ConsoleKey.Backspace:
+                    case ConsoleKey.B:
+                        return Nav<int>.Back;
+                    case ConsoleKey.R:
+                        return Nav<int>.Restart;
                     case ConsoleKey.Escape:
-                        return -1;
+                    case ConsoleKey.Q:
+                        return Nav<int>.Quit;
+
                     default:
                         continue;
                 }
@@ -172,7 +182,7 @@ public static class Menu
         catch { return 25; }
     }
 
-    private static int SelectFallback(string title, IReadOnlyList<string> items)
+    private static Nav<int> SelectFallback(string title, IReadOnlyList<string> items)
     {
         Console.WriteLine();
         Console.WriteLine(title);
@@ -183,16 +193,21 @@ public static class Menu
 
         while (true)
         {
-            Console.Write($"Enter a number (1-{items.Count}), or blank to cancel: ");
-            var input = Console.ReadLine();
-            if (string.IsNullOrWhiteSpace(input))
+            Console.Write($"Enter a number (1-{items.Count}) | B back, R restart, Q cancel: ");
+            var input = Console.ReadLine()?.Trim();
+            switch (input?.ToLowerInvariant())
             {
-                return -1;
+                case "b" or "back":
+                    return Nav<int>.Back;
+                case "r" or "restart":
+                    return Nav<int>.Restart;
+                case "q" or "quit" or "cancel" or null or "":
+                    return Nav<int>.Quit;
             }
 
             if (int.TryParse(input, out var choice) && choice >= 1 && choice <= items.Count)
             {
-                return choice - 1;
+                return Nav<int>.FromValue(choice - 1);
             }
 
             Console.WriteLine("  ! Not a valid choice.");

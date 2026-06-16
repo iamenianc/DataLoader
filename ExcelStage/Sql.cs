@@ -36,14 +36,38 @@ public static class Sql
 
     /// <summary>
     /// Returns the database names the current login can see on the server, ordered
-    /// by name. Tries progressively simpler queries so it works across permission
-    /// levels and SQL Server versions.
+    /// by name. Connects to <c>master</c> first (works for most logins), then falls
+    /// back to a connection with no database for logins that can't open master.
     /// </summary>
     public static List<string> ListDatabases(string server)
     {
-        using var connection = new SqlConnection(BuildServerConnectionString(server));
-        connection.Open();
+        var connectionStrings = new[]
+        {
+            BuildConnectionString(server, "master"),
+            BuildServerConnectionString(server)
+        };
 
+        Exception? lastError = null;
+        foreach (var connectionString in connectionStrings)
+        {
+            try
+            {
+                using var connection = new SqlConnection(connectionString);
+                connection.Open();
+                return QueryDatabaseNames(connection);
+            }
+            catch (Exception ex)
+            {
+                lastError = ex; // try the next connection style
+            }
+        }
+
+        // All connection attempts failed - surface the real reason to the caller.
+        throw lastError ?? new InvalidOperationException("Unable to connect to the server.");
+    }
+
+    private static List<string> QueryDatabaseNames(SqlConnection connection)
+    {
         var queries = new[]
         {
             // Preferred: only online, user databases this login can actually use.

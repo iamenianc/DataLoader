@@ -8,87 +8,116 @@ PrintBanner();
 
 try
 {
-    // ----- 1. Excel workbook -------------------------------------------------
-    var excelPath = SelectExcelFile();
-    if (excelPath is null)
-    {
-        Console.WriteLine("Cancelled. No file selected.");
-        return 0;
-    }
-
-    // ----- 2. Worksheet ------------------------------------------------------
-    var worksheet = SelectWorksheet(excelPath);
-    if (worksheet is null)
-    {
-        Console.WriteLine("Cancelled. No worksheet selected.");
-        return 0;
-    }
-
-    Console.WriteLine();
-    Console.WriteLine($"Reading '{Path.GetFileName(excelPath)}' / '{worksheet}'...");
-    var sheet = ExcelReader.Read(excelPath, worksheet);
-    Console.WriteLine($"  Found {sheet.Headers.Count} column(s) and {sheet.Rows.Count} data row(s).");
-
-    Console.WriteLine("Inferring SQL column types from the data...");
-    var columns = ColumnTypeInferrer.Infer(sheet);
-    PrintColumnSummary(columns);
-
-    // ----- 3. SQL Server target ---------------------------------------------
-    Console.WriteLine();
-    Console.WriteLine("Now let's tell ExcelStage where to load the data.");
-
-    var server = PromptRequired(
-        "SQL Server name / instance",
-        "e.g. DBPROD-01  or  localhost\\SQLEXPRESS");
-
-    var database = SelectDatabase(server);
-    if (database is null)
-    {
-        Console.WriteLine("Cancelled. No database selected.");
-        return 0;
-    }
-
+    string? excelPath = null;
+    string? worksheet = null;
+    string? server = null;
+    string? database = null;
+    string? baseName = null;
+    ExcelSheet? sheet = null;
+    List<InferredColumn>? columns = null;
     var login = SanitizeLogin(Environment.UserName);
-    var baseName = PromptRequired(
-        "Staging table name",
-        $"Your login ('{login}') will be added automatically so the table is yours");
 
-    var tableName = $"{login}_{SanitizeLogin(baseName)}";
-    var connectionString = Sql.BuildConnectionString(server, database);
-
-    // ----- 4. Confirm before touching the database --------------------------
-    Console.WriteLine();
-    Console.WriteLine("======================================================");
-    Console.WriteLine(" Please confirm - about to commit the following:");
-    Console.WriteLine("======================================================");
-    Console.WriteLine($"  Workbook    : {Path.GetFileName(excelPath)}");
-    Console.WriteLine($"  Worksheet   : {worksheet}");
-    Console.WriteLine($"  Server      : {server}");
-    Console.WriteLine($"  Database    : {database}");
-    Console.WriteLine($"  Schema      : {StagingLoader.SchemaName}");
-    Console.WriteLine($"  Table       : {tableName}");
-    Console.WriteLine($"  Destination : [{StagingLoader.SchemaName}].[{tableName}]");
-    Console.WriteLine($"  Columns     : {columns.Count}");
-    Console.WriteLine($"  Rows        : {sheet.Rows.Count}");
-    Console.WriteLine("------------------------------------------------------");
-    Console.WriteLine("If the table already exists it will be dropped and recreated.");
-    Console.WriteLine();
-
-    if (!ConfirmExecute())
+    var step = Step.File;
+    while (true)
     {
-        Console.WriteLine("Cancelled. No changes were made.");
-        return 0;
+        switch (step)
+        {
+            case Step.File:
+            {
+                var r = SelectExcelFile();
+                if (r.Kind is NavKind.Quit or NavKind.Back) return Cancelled();
+                if (r.Kind == NavKind.Restart) { step = Step.File; continue; }
+                excelPath = r.Value;
+                step = Step.Worksheet;
+                continue;
+            }
+
+            case Step.Worksheet:
+            {
+                var r = SelectWorksheet(excelPath!);
+                if (r.Kind == NavKind.Quit) return Cancelled();
+                if (r.Kind is NavKind.Restart or NavKind.Back) { step = Step.File; continue; }
+                worksheet = r.Value;
+
+                Console.WriteLine();
+                Console.WriteLine($"Reading '{Path.GetFileName(excelPath)}' / '{worksheet}'...");
+                try
+                {
+                    sheet = ExcelReader.Read(excelPath!, worksheet!);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  ! Could not read that worksheet: {ex.Message}");
+                    Console.WriteLine("    Pick another worksheet, or press B to choose a different file.");
+                    continue; // stay on the worksheet step
+                }
+
+                Console.WriteLine($"  Found {sheet.Headers.Count} column(s) and {sheet.Rows.Count} data row(s).");
+                Console.WriteLine("Inferring SQL column types from the data...");
+                columns = ColumnTypeInferrer.Infer(sheet);
+                PrintColumnSummary(columns);
+                step = Step.Server;
+                continue;
+            }
+
+            case Step.Server:
+            {
+                var r = PromptNav("SQL Server name / instance", "e.g. DBPROD-01  or  localhost\\SQLEXPRESS");
+                if (r.Kind == NavKind.Quit) return Cancelled();
+                if (r.Kind == NavKind.Restart) { step = Step.File; continue; }
+                if (r.Kind == NavKind.Back) { step = Step.Worksheet; continue; }
+                server = r.Value;
+                step = Step.Database;
+                continue;
+            }
+
+            case Step.Database:
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Connecting to '{server}' to list databases...");
+                var r = SelectDatabase(server!);
+                if (r.Kind == NavKind.Quit) return Cancelled();
+                if (r.Kind == NavKind.Restart) { step = Step.File; continue; }
+                if (r.Kind == NavKind.Back) { step = Step.Server; continue; }
+                database = r.Value;
+                step = Step.Table;
+                continue;
+            }
+
+            case Step.Table:
+            {
+                var r = PromptNav("Staging table name",
+                    $"Your login ('{login}') will be added automatically so the table is yours");
+                if (r.Kind == NavKind.Quit) return Cancelled();
+                if (r.Kind == NavKind.Restart) { step = Step.File; continue; }
+                if (r.Kind == NavKind.Back) { step = Step.Database; continue; }
+                baseName = r.Value;
+                step = Step.Confirm;
+                continue;
+            }
+
+            case Step.Confirm:
+            {
+                var tableName = $"{login}_{SanitizeLogin(baseName!)}";
+                PrintSummary(excelPath!, worksheet!, server!, database!, tableName, columns!.Count, sheet!.Rows.Count);
+
+                var r = ConfirmNav();
+                if (r.Kind == NavKind.Quit) return Cancelled();
+                if (r.Kind == NavKind.Restart) { step = Step.File; continue; }
+                if (r.Kind == NavKind.Back) { step = Step.Table; continue; }
+
+                var connectionString = Sql.BuildConnectionString(server!, database!);
+                Console.WriteLine();
+                Console.WriteLine("Connecting and creating the staging table...");
+                var inserted = StagingLoader.Load(connectionString, tableName, columns!, sheet!);
+
+                Console.WriteLine();
+                Console.WriteLine("Done.");
+                Console.WriteLine($"  Inserted {inserted} row(s) into [{StagingLoader.SchemaName}].[{tableName}].");
+                return 0;
+            }
+        }
     }
-
-    // ----- 5. Create + load --------------------------------------------------
-    Console.WriteLine();
-    Console.WriteLine("Connecting and creating the staging table...");
-    var inserted = StagingLoader.Load(connectionString, tableName, columns, sheet);
-
-    Console.WriteLine();
-    Console.WriteLine("Done.");
-    Console.WriteLine($"  Inserted {inserted} row(s) into [{StagingLoader.SchemaName}].[{tableName}].");
-    return 0;
 }
 catch (FileNotFoundException ex)
 {
@@ -108,11 +137,10 @@ catch (Exception ex)
 }
 
 // ---------------------------------------------------------------------------
-// Selection flows
+// Selection flows (each returns a value or a navigation request)
 // ---------------------------------------------------------------------------
 
-// Returns the chosen workbook path, or null if the user cancelled.
-static string? SelectExcelFile()
+static Nav<string> SelectExcelFile()
 {
     var directory = Directory.GetCurrentDirectory();
 
@@ -134,17 +162,25 @@ static string? SelectExcelFile()
         options.Add("Enter a path manually...");
 
         var choice = Menu.Select("Select an Excel workbook:", options);
-        if (choice < 0)
+        if (!choice.IsValue)
         {
-            return null; // Esc
+            return choice.Carry<string>();
         }
 
-        if (choice == options.Count - 1)
+        if (choice.Value == options.Count - 1)
         {
-            var manual = PromptForExistingFile(
-                "Full path to the Excel workbook",
-                "e.g. C:\\data\\customers.xlsx");
-            if (IsBinaryWorkbook(manual))
+            var manual = PromptForExistingFileNav("Full path to the Excel workbook", "e.g. C:\\data\\customers.xlsx");
+            if (manual.Kind == NavKind.Back)
+            {
+                continue; // back to the file list
+            }
+
+            if (!manual.IsValue)
+            {
+                return manual; // restart / quit
+            }
+
+            if (IsBinaryWorkbook(manual.Value!))
             {
                 WarnBinaryWorkbook();
                 continue;
@@ -153,19 +189,18 @@ static string? SelectExcelFile()
             return manual;
         }
 
-        var selected = files[choice];
+        var selected = files[choice.Value];
         if (IsBinaryWorkbook(selected))
         {
             WarnBinaryWorkbook();
             continue;
         }
 
-        return selected;
+        return Nav<string>.FromValue(selected);
     }
 }
 
-// Returns the chosen worksheet name, or null if cancelled.
-static string? SelectWorksheet(string path)
+static Nav<string> SelectWorksheet(string path)
 {
     var names = ExcelReader.GetWorksheetNames(path);
     if (names.Count == 0)
@@ -173,53 +208,53 @@ static string? SelectWorksheet(string path)
         throw new InvalidDataException("The workbook does not contain any worksheets.");
     }
 
-    if (names.Count == 1)
-    {
-        Console.WriteLine();
-        Console.WriteLine($"Using the only worksheet: '{names[0]}'.");
-        return names[0];
-    }
-
     var choice = Menu.Select("Select a worksheet:", names);
-    return choice < 0 ? null : names[choice];
+    return choice.IsValue ? Nav<string>.FromValue(names[choice.Value]) : choice.Carry<string>();
 }
 
-// Returns the chosen database name, or null if cancelled.
-static string? SelectDatabase(string server)
+static Nav<string> SelectDatabase(string server)
 {
     List<string> databases;
     try
     {
-        Console.WriteLine();
-        Console.WriteLine($"Connecting to '{server}' to list databases...");
         databases = Sql.ListDatabases(server);
     }
     catch (Exception ex)
     {
-        // Listing databases is a convenience only - never let it abort the run.
-        // Any failure (network, login, TLS, etc.) just falls back to typing the name.
-        Console.WriteLine($"  ! Could not list databases automatically.");
-        Console.WriteLine($"    Reason: {ex.Message.Trim()}");
+        Console.WriteLine("  ! Could not list databases automatically.");
+        Console.WriteLine($"    Reason: {Describe(ex)}");
         Console.WriteLine("    You can still type the database name to continue.");
-        return PromptRequired("Database name", "Type the database name to use");
+        return PromptNav("Database name", "Type the database name to use");
     }
 
     if (databases.Count == 0)
     {
-        Console.WriteLine("  ! No user databases were returned.");
-        return PromptRequired("Database name", "Type the database name to use");
+        Console.WriteLine("  ! No databases were returned for your login.");
+        return PromptNav("Database name", "Type the database name to use");
     }
 
     var options = new List<string>(databases) { "Enter a name manually..." };
-    var choice = Menu.Select("Select a database:", options);
-    if (choice < 0)
+    while (true)
     {
-        return null;
-    }
+        var choice = Menu.Select("Select a database:", options);
+        if (!choice.IsValue)
+        {
+            return choice.Carry<string>();
+        }
 
-    return choice == options.Count - 1
-        ? PromptRequired("Database name", "Type the database name to use")
-        : databases[choice];
+        if (choice.Value == options.Count - 1)
+        {
+            var manual = PromptNav("Database name", "Type the database name to use");
+            if (manual.Kind == NavKind.Back)
+            {
+                continue; // back to the database list
+            }
+
+            return manual;
+        }
+
+        return Nav<string>.FromValue(databases[choice.Value]);
+    }
 }
 
 static bool IsExcelWorkbook(string path)
@@ -239,7 +274,7 @@ static void WarnBinaryWorkbook()
 }
 
 // ---------------------------------------------------------------------------
-// Console helpers
+// Prompts and console helpers
 // ---------------------------------------------------------------------------
 
 static void PrintBanner()
@@ -249,7 +284,8 @@ static void PrintBanner()
     Console.WriteLine("======================================================");
     Console.WriteLine("This tool will ask you a few questions, read your");
     Console.WriteLine("spreadsheet, build a matching table, and load the rows.");
-    Console.WriteLine("Press Ctrl+C at any time to cancel.");
+    Console.WriteLine();
+    Console.WriteLine("At any step:  B = back   R = restart   Q / Esc = cancel");
     Console.WriteLine();
 }
 
@@ -263,22 +299,153 @@ static void PrintColumnSummary(List<InferredColumn> columns)
     }
 }
 
-static string PromptForExistingFile(string label, string hint)
+static void PrintSummary(
+    string excelPath, string worksheet, string server, string database,
+    string tableName, int columnCount, int rowCount)
+{
+    Console.WriteLine();
+    Console.WriteLine("======================================================");
+    Console.WriteLine(" Please confirm - about to commit the following:");
+    Console.WriteLine("======================================================");
+    Console.WriteLine($"  Workbook    : {Path.GetFileName(excelPath)}");
+    Console.WriteLine($"  Worksheet   : {worksheet}");
+    Console.WriteLine($"  Server      : {server}");
+    Console.WriteLine($"  Database    : {database}");
+    Console.WriteLine($"  Schema      : {StagingLoader.SchemaName}");
+    Console.WriteLine($"  Table       : {tableName}");
+    Console.WriteLine($"  Destination : [{StagingLoader.SchemaName}].[{tableName}]");
+    Console.WriteLine($"  Columns     : {columnCount}");
+    Console.WriteLine($"  Rows        : {rowCount}");
+    Console.WriteLine("------------------------------------------------------");
+    Console.WriteLine("If the table already exists it will be dropped and recreated.");
+    Console.WriteLine();
+}
+
+// Asks for a required value. Typing B/R/Q (or back/restart/quit/cancel)
+// navigates instead of returning a value.
+static Nav<string> PromptNav(string label, string hint)
 {
     while (true)
     {
-        var value = CleanPath(PromptRequired(label, hint));
-        if (File.Exists(value))
+        Console.WriteLine();
+        if (!string.IsNullOrEmpty(hint))
         {
-            return value;
+            Console.WriteLine($"  ({hint})");
         }
 
-        Console.WriteLine($"  ! No file found at '{value}'. Please try again.");
+        Console.WriteLine("  (or type B = back, R = restart, Q = cancel)");
+        Console.Write($"{label}: ");
+        var input = Console.ReadLine();
+
+        var command = AsCommand(input);
+        if (command.HasValue)
+        {
+            return command.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(input))
+        {
+            return Nav<string>.FromValue(input.Trim());
+        }
+
+        Console.WriteLine("  ! This value is required. Please enter something (or B/R/Q).");
     }
 }
 
-// Removes surrounding single/double quotes and whitespace from a pasted path.
-// Windows' "Copy as path" wraps the path in double quotes, which break File.Exists.
+static Nav<string> PromptForExistingFileNav(string label, string hint)
+{
+    while (true)
+    {
+        var r = PromptNav(label, hint);
+        if (!r.IsValue)
+        {
+            return r;
+        }
+
+        var path = CleanPath(r.Value!);
+        if (File.Exists(path))
+        {
+            return Nav<string>.FromValue(path);
+        }
+
+        Console.WriteLine($"  ! No file found at '{path}'. Please try again.");
+    }
+}
+
+// Recognises navigation commands typed at a prompt. Returns null for a normal value.
+static Nav<string>? AsCommand(string? input)
+{
+    switch (input?.Trim().ToLowerInvariant())
+    {
+        case "b" or "back":
+            return Nav<string>.Back;
+        case "r" or "restart":
+            return Nav<string>.Restart;
+        case "q" or "quit" or "cancel" or "exit":
+            return Nav<string>.Quit;
+        default:
+            return null;
+    }
+}
+
+// Final go/no-go gate. Enter executes; B/R/Q (or Esc) navigate.
+static Nav<bool> ConfirmNav()
+{
+    Console.Write("Press ENTER to execute  |  B = back, R = restart, Esc/Q = cancel: ");
+
+    if (Console.IsInputRedirected)
+    {
+        var line = Console.ReadLine()?.Trim().ToLowerInvariant();
+        Console.WriteLine();
+        return line switch
+        {
+            "b" or "back" => Nav<bool>.Back,
+            "r" or "restart" => Nav<bool>.Restart,
+            "q" or "quit" or "cancel" => Nav<bool>.Quit,
+            _ => Nav<bool>.FromValue(true) // blank / Enter
+        };
+    }
+
+    while (true)
+    {
+        var key = Console.ReadKey(intercept: true).Key;
+        switch (key)
+        {
+            case ConsoleKey.Enter:
+                Console.WriteLine();
+                return Nav<bool>.FromValue(true);
+            case ConsoleKey.B:
+                Console.WriteLine();
+                return Nav<bool>.Back;
+            case ConsoleKey.R:
+                Console.WriteLine();
+                return Nav<bool>.Restart;
+            case ConsoleKey.Escape:
+            case ConsoleKey.Q:
+                Console.WriteLine();
+                return Nav<bool>.Quit;
+        }
+    }
+}
+
+// Builds a readable reason from an exception chain, falling back to the type
+// name when a message is empty (so the reason line is never blank).
+static string Describe(Exception ex)
+{
+    var parts = new List<string>();
+    Exception? current = ex;
+    while (current is not null)
+    {
+        var message = string.IsNullOrWhiteSpace(current.Message)
+            ? current.GetType().Name
+            : current.Message.Trim();
+        parts.Add(message);
+        current = current.InnerException;
+    }
+
+    return string.Join("  ->  ", parts);
+}
+
 static string CleanPath(string raw)
 {
     var value = raw.Trim();
@@ -289,58 +456,6 @@ static string CleanPath(string raw)
     }
 
     return value.Trim('"', '\'').Trim();
-}
-
-static string PromptRequired(string label, string hint)
-{
-    while (true)
-    {
-        Console.WriteLine();
-        if (!string.IsNullOrEmpty(hint))
-        {
-            Console.WriteLine($"  ({hint})");
-        }
-
-        Console.Write($"{label}: ");
-        var value = Console.ReadLine();
-        if (!string.IsNullOrWhiteSpace(value))
-        {
-            return value.Trim();
-        }
-
-        Console.WriteLine("  ! This value is required. Please enter something.");
-    }
-}
-
-// Final go/no-go gate: Enter executes, Esc (or anything else when redirected)
-// cancels. Returns true to proceed.
-static bool ConfirmExecute()
-{
-    Console.Write("Press ENTER to execute, or Esc to cancel: ");
-
-    if (Console.IsInputRedirected)
-    {
-        // No interactive key access: a blank line means "go", anything else cancels.
-        var line = Console.ReadLine();
-        Console.WriteLine();
-        return string.IsNullOrWhiteSpace(line);
-    }
-
-    while (true)
-    {
-        var key = Console.ReadKey(intercept: true).Key;
-        if (key == ConsoleKey.Enter)
-        {
-            Console.WriteLine();
-            return true;
-        }
-
-        if (key == ConsoleKey.Escape)
-        {
-            Console.WriteLine();
-            return false;
-        }
-    }
 }
 
 static string SanitizeLogin(string raw)
@@ -357,9 +472,26 @@ static string SanitizeLogin(string raw)
     return char.IsDigit(result[0]) ? "_" + result : result;
 }
 
+static int Cancelled()
+{
+    Console.WriteLine();
+    Console.WriteLine("Cancelled. No changes were made.");
+    return 0;
+}
+
 static int Fail(string message)
 {
     Console.Error.WriteLine();
     Console.Error.WriteLine($"ERROR: {message}");
     return 1;
+}
+
+enum Step
+{
+    File,
+    Worksheet,
+    Server,
+    Database,
+    Table,
+    Confirm
 }
