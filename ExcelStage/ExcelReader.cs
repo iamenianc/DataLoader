@@ -218,44 +218,52 @@ public static class ExcelReader
             return ExcelCell.Empty;
         }
 
-        switch (cell.DataType?.Value)
+        // CellValues is a struct in the OpenXML SDK (3.x), so its members are not
+        // compile-time constants and cannot be used in a switch; compare with ==.
+        var dataType = cell.DataType?.Value;
+
+        if (dataType == CellValues.SharedString)
         {
-            case CellValues.SharedString:
-                if (int.TryParse(rawValue, out var ssIndex) && ssIndex >= 0 && ssIndex < sharedStrings.Length)
-                {
-                    var text = sharedStrings[ssIndex];
-                    return string.IsNullOrEmpty(text) ? ExcelCell.Empty : new ExcelCell(text, ExcelCellKind.Text);
-                }
+            if (int.TryParse(rawValue, out var ssIndex) && ssIndex >= 0 && ssIndex < sharedStrings.Length)
+            {
+                var text = sharedStrings[ssIndex];
+                return string.IsNullOrEmpty(text) ? ExcelCell.Empty : new ExcelCell(text, ExcelCellKind.Text);
+            }
 
-                return ExcelCell.Empty;
-
-            case CellValues.Boolean:
-                return new ExcelCell(rawValue == "1", ExcelCellKind.Boolean);
-
-            case CellValues.Date:
-                return DateTime.TryParse(rawValue, out var isoDate)
-                    ? new ExcelCell(isoDate, ExcelCellKind.Date)
-                    : new ExcelCell(rawValue, ExcelCellKind.Text);
-
-            case CellValues.String: // formula result string
-                return new ExcelCell(rawValue, ExcelCellKind.Text);
-
-            default:
-                // Number (possibly a serial date depending on the cell style).
-                if (double.TryParse(rawValue, System.Globalization.NumberStyles.Any,
-                        System.Globalization.CultureInfo.InvariantCulture, out var number))
-                {
-                    var styleIndex = cell.StyleIndex?.Value;
-                    if (styleIndex.HasValue && dateStyles.Contains(styleIndex.Value))
-                    {
-                        return new ExcelCell(DateTime.FromOADate(number), ExcelCellKind.Date);
-                    }
-
-                    return new ExcelCell(number, ExcelCellKind.Number);
-                }
-
-                return new ExcelCell(rawValue, ExcelCellKind.Text);
+            return ExcelCell.Empty;
         }
+
+        if (dataType == CellValues.Boolean)
+        {
+            return new ExcelCell(rawValue == "1", ExcelCellKind.Boolean);
+        }
+
+        if (dataType == CellValues.Date)
+        {
+            return DateTime.TryParse(rawValue, out var isoDate)
+                ? new ExcelCell(isoDate, ExcelCellKind.Date)
+                : new ExcelCell(rawValue, ExcelCellKind.Text);
+        }
+
+        if (dataType == CellValues.String) // formula result string
+        {
+            return new ExcelCell(rawValue, ExcelCellKind.Text);
+        }
+
+        // Number (possibly a serial date depending on the cell style).
+        if (double.TryParse(rawValue, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var number))
+        {
+            var styleIndex = cell.StyleIndex?.Value;
+            if (styleIndex.HasValue && dateStyles.Contains(styleIndex.Value))
+            {
+                return new ExcelCell(DateTime.FromOADate(number), ExcelCellKind.Date);
+            }
+
+            return new ExcelCell(number, ExcelCellKind.Number);
+        }
+
+        return new ExcelCell(rawValue, ExcelCellKind.Text);
     }
 
     /// <summary>Converts a cell reference such as "B7" into a zero-based column index.</summary>
