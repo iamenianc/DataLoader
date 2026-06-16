@@ -267,8 +267,7 @@ static string PromptForExistingFile(string label, string hint)
 {
     while (true)
     {
-        var value = PromptRequired(label, hint);
-        value = value.Trim().Trim('"');
+        var value = CleanPath(PromptRequired(label, hint));
         if (File.Exists(value))
         {
             return value;
@@ -276,6 +275,20 @@ static string PromptForExistingFile(string label, string hint)
 
         Console.WriteLine($"  ! No file found at '{value}'. Please try again.");
     }
+}
+
+// Removes surrounding single/double quotes and whitespace from a pasted path.
+// Windows' "Copy as path" wraps the path in double quotes, which break File.Exists.
+static string CleanPath(string raw)
+{
+    var value = raw.Trim();
+    while (value.Length >= 2 &&
+           ((value[0] == '"' && value[^1] == '"') || (value[0] == '\'' && value[^1] == '\'')))
+    {
+        value = value[1..^1].Trim();
+    }
+
+    return value.Trim('"', '\'').Trim();
 }
 
 static string PromptRequired(string label, string hint)
