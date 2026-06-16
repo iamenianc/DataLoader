@@ -14,6 +14,9 @@ It deliberately does only one thing:
 The table is created as `db_upload.<your-login>_<name-you-choose>` so each
 person's staging tables stay separate.
 
+> **Not a developer?** See **[INSTALL-WINDOWS.md](INSTALL-WINDOWS.md)** for the
+> no-install, download-one-file-and-run guide.
+
 ## Running it
 
 You don't need to remember any command-line switches — just run it from the
