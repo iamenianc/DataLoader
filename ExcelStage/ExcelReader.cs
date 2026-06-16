@@ -78,16 +78,48 @@ public static class ExcelReader
 
         var headerRow = rawRows[headerIndex];
         var columnCount = maxColumn;
+        var dataStart = headerIndex + 1;
 
-        var headers = new List<string>(columnCount);
+        // Determine which columns are "live" - a column is kept only if it has a
+        // header value or at least one non-empty data cell. This drops phantom
+        // trailing columns that exist only because of cell formatting/styling.
+        var isLive = new bool[columnCount];
         for (var i = 0; i < columnCount; i++)
         {
+            var hasHeader = i < headerRow.Length && !headerRow[i].IsEmpty;
+            if (hasHeader)
+            {
+                isLive[i] = true;
+                continue;
+            }
+
+            for (var r = dataStart; r < rawRows.Count; r++)
+            {
+                var row = rawRows[r];
+                if (i < row.Length && !row[i].IsEmpty)
+                {
+                    isLive[i] = true;
+                    break;
+                }
+            }
+        }
+
+        var liveColumns = Enumerable.Range(0, columnCount).Where(i => isLive[i]).ToArray();
+        if (liveColumns.Length == 0)
+        {
+            throw new InvalidDataException("The worksheet contains no usable columns.");
+        }
+
+        var headers = new List<string>(liveColumns.Length);
+        for (var c = 0; c < liveColumns.Length; c++)
+        {
+            var i = liveColumns[c];
             var raw = i < headerRow.Length ? headerRow[i].AsText().Trim() : string.Empty;
-            headers.Add(string.IsNullOrEmpty(raw) ? $"Column{i + 1}" : raw);
+            headers.Add(string.IsNullOrEmpty(raw) ? $"Column{c + 1}" : raw);
         }
 
         var dataRows = new List<ExcelCell[]>();
-        for (var r = headerIndex + 1; r < rawRows.Count; r++)
+        for (var r = dataStart; r < rawRows.Count; r++)
         {
             var row = rawRows[r];
             if (row.All(c => c.IsEmpty))
@@ -95,14 +127,15 @@ public static class ExcelReader
                 continue; // skip fully blank rows
             }
 
-            // Normalise every data row to the column count.
-            var normalised = new ExcelCell[columnCount];
-            for (var i = 0; i < columnCount; i++)
+            // Keep only the live columns, in their original order.
+            var projected = new ExcelCell[liveColumns.Length];
+            for (var c = 0; c < liveColumns.Length; c++)
             {
-                normalised[i] = i < row.Length ? row[i] : ExcelCell.Empty;
+                var i = liveColumns[c];
+                projected[c] = i < row.Length ? row[i] : ExcelCell.Empty;
             }
 
-            dataRows.Add(normalised);
+            dataRows.Add(projected);
         }
 
         return new ExcelSheet { Headers = headers, Rows = dataRows };
