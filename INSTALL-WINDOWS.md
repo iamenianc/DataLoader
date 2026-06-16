@@ -1,32 +1,38 @@
 # ExcelStage — Easy Windows Install (no technical knowledge needed)
 
-ExcelStage is a single program file. There is **nothing to install** — you
-download one file and run it. It does **not** need Excel, and it does **not**
-need .NET to be installed on your computer.
+There is **nothing to install** — you download a zip, unzip it, and run the
+program inside. It does **not** need Excel, and it does **not** need .NET to be
+installed on your computer.
 
 ---
 
-## Step 1 — Get the program (`ExcelStage.exe`)
+## Step 1 — Get the program (`ExcelStage-windows.zip`)
 
 1. Go to the project's **Releases** page on GitHub:
    `https://github.com/iamenianc/DataLoader/releases`
-2. Under the newest release, click **`ExcelStage.exe`** to download it.
-3. Save it somewhere easy to find, like your **Desktop** or your
-   **Documents** folder.
+2. Under the newest release, click **`ExcelStage-windows.zip`** to download it.
+3. In your **Downloads** folder, **right-click** the zip → **Extract All…** →
+   **Extract**. This creates a folder containing `ExcelStage.exe` and the files
+   it needs.
+4. Move that folder somewhere easy to find, like your **Desktop**.
 
 > Windows SmartScreen may say *"Windows protected your PC."* This is normal for
 > a freshly downloaded program. Click **More info → Run anyway**.
+>
+> Important: keep `ExcelStage.exe` together with the other files from the zip —
+> don't pull just the `.exe` out on its own, or it won't be able to connect to
+> SQL Server.
 
 *(No Releases yet? Ask whoever set this up to "publish a release," or see
 "For the person who builds it" at the bottom.)*
 
 ---
 
-## Step 2 — Put it next to your spreadsheets (recommended)
+## Step 2 — Put your spreadsheet in that folder (recommended)
 
 ExcelStage automatically lists the Excel files in **whatever folder you run it
-from**. The simplest setup is to copy `ExcelStage.exe` into the same folder as
-the `.xlsx` file you want to load.
+from**. The simplest setup is to copy your `.xlsx` file into the unzipped
+ExcelStage folder.
 
 ---
 
@@ -77,11 +83,19 @@ That's it. It signs in to SQL Server using your normal Windows account.
 
 ## For the person who builds it (one time)
 
-To create `ExcelStage.exe` for everyone else, on a PC with the
+To create `ExcelStage-windows.zip` for everyone else, on a PC with the
 **.NET 8 SDK** installed (`winget install Microsoft.DotNet.SDK.8`):
 
 - **Easiest:** in GitHub, create a tag/release named like `v1.0.0`. The
-  included GitHub Action builds `ExcelStage.exe` automatically and attaches it
-  to that release for everyone to download.
+  included GitHub Action builds `ExcelStage-windows.zip` automatically and
+  attaches it to that release for everyone to download.
 - **Or locally:** double-click **`publish-windows.bat`** in this project. The
-  finished `dist\ExcelStage.exe` can be copied to any Windows PC.
+  finished `dist\ExcelStage-windows.zip` can be handed to any Windows PC.
+
+> The build is packaged as a zipped folder (not a single `.exe`) on purpose:
+> the SQL Server networking library must sit next to the `.exe`, otherwise it
+> crashes when connecting to SQL Server.
+
+> **If you have the .NET SDK, the simplest way to run it is without building an
+> exe at all:** `dotnet run --project ExcelStage` from the project folder. This
+> always uses the SQL networking library correctly.
