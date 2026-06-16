@@ -34,7 +34,10 @@ It guides you step by step:
 | Staging table name | Type a name — your login is prefixed automatically                      |
 
 In every list: **Up/Down** moves, **Enter** confirms, **Esc** cancels. Before
-anything is written it shows a summary and asks you to confirm.
+anything is written it shows a full confirmation summary (workbook, worksheet,
+server, database, `db_upload` schema, table, column and row counts); press
+**Enter** to execute or **Esc** to cancel. The destination schema is always
+`db_upload`.
 
 > `.xlsb` (binary) workbooks are listed but can't be read — re-save them as
 > `.xlsx` or `.xlsm` in Excel first.

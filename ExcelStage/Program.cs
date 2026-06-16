@@ -58,17 +58,23 @@ try
 
     // ----- 4. Confirm before touching the database --------------------------
     Console.WriteLine();
-    Console.WriteLine("About to run with these settings:");
+    Console.WriteLine("======================================================");
+    Console.WriteLine(" Please confirm - about to commit the following:");
+    Console.WriteLine("======================================================");
     Console.WriteLine($"  Workbook    : {Path.GetFileName(excelPath)}");
     Console.WriteLine($"  Worksheet   : {worksheet}");
     Console.WriteLine($"  Server      : {server}");
     Console.WriteLine($"  Database    : {database}");
+    Console.WriteLine($"  Schema      : {StagingLoader.SchemaName}");
+    Console.WriteLine($"  Table       : {tableName}");
     Console.WriteLine($"  Destination : [{StagingLoader.SchemaName}].[{tableName}]");
+    Console.WriteLine($"  Columns     : {columns.Count}");
     Console.WriteLine($"  Rows        : {sheet.Rows.Count}");
-    Console.WriteLine();
+    Console.WriteLine("------------------------------------------------------");
     Console.WriteLine("If the table already exists it will be dropped and recreated.");
+    Console.WriteLine();
 
-    if (!PromptYesNo("Proceed?", defaultYes: true))
+    if (!ConfirmExecute())
     {
         Console.WriteLine("Cancelled. No changes were made.");
         return 0;
@@ -289,22 +295,34 @@ static string PromptRequired(string label, string hint)
     }
 }
 
-static bool PromptYesNo(string label, bool defaultYes)
+// Final go/no-go gate: Enter executes, Esc (or anything else when redirected)
+// cancels. Returns true to proceed.
+static bool ConfirmExecute()
 {
-    var suffix = defaultYes ? "[Y/n]" : "[y/N]";
+    Console.Write("Press ENTER to execute, or Esc to cancel: ");
+
+    if (Console.IsInputRedirected)
+    {
+        // No interactive key access: a blank line means "go", anything else cancels.
+        var line = Console.ReadLine();
+        Console.WriteLine();
+        return string.IsNullOrWhiteSpace(line);
+    }
+
     while (true)
     {
-        Console.Write($"{label} {suffix}: ");
-        var value = Console.ReadLine()?.Trim().ToLowerInvariant();
-        if (string.IsNullOrEmpty(value))
+        var key = Console.ReadKey(intercept: true).Key;
+        if (key == ConsoleKey.Enter)
         {
-            return defaultYes;
+            Console.WriteLine();
+            return true;
         }
 
-        if (value is "y" or "yes") return true;
-        if (value is "n" or "no") return false;
-
-        Console.WriteLine("  ! Please answer y or n.");
+        if (key == ConsoleKey.Escape)
+        {
+            Console.WriteLine();
+            return false;
+        }
     }
 }
 
