@@ -117,14 +117,17 @@ public static class ColumnTypeInferrer
             return new InferredColumn { Name = name, SqlType = "NVARCHAR(255)", DbType = SqlDbType.NVarChar };
         }
 
-        if (allBool)
-        {
-            return new InferredColumn { Name = name, SqlType = "BIT", DbType = SqlDbType.Bit };
-        }
-
+        // Prefer BIGINT for whole numbers: a column of 0/1 values is treated as
+        // an integer column, not a bit flag. Only non-numeric true/false-style
+        // values (true, false, yes, no) fall through to BIT.
         if (allInt)
         {
             return new InferredColumn { Name = name, SqlType = "BIGINT", DbType = SqlDbType.BigInt };
+        }
+
+        if (allBool)
+        {
+            return new InferredColumn { Name = name, SqlType = "BIT", DbType = SqlDbType.Bit };
         }
 
         if (allDecimal)

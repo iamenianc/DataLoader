@@ -53,8 +53,8 @@ narrowest type that fits:
 
 | If every value is…              | Column type        |
 | ------------------------------- | ------------------ |
-| true/false (or 0/1, yes/no)     | `BIT`              |
-| a whole number                  | `BIGINT`           |
+| a whole number (incl. 0/1)      | `BIGINT`           |
+| true/false or yes/no            | `BIT`              |
 | a number with decimals          | `DECIMAL(38, 10)`  |
 | a date/time                     | `DATETIME2`        |
 | anything else                   | `NVARCHAR(n)`      |
