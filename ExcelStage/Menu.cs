@@ -109,6 +109,232 @@ public static class Menu
         }
     }
 
+    /// <summary>
+    /// Like <see cref="Select"/>, but lets the user pick several items. Space
+    /// toggles the highlighted item, Enter confirms. The returned indexes are in
+    /// the order they were selected, so callers that care about "the first one
+    /// chosen" (e.g. which sheet sets the column types) can rely on it. Pressing
+    /// Enter with nothing ticked selects just the highlighted item.
+    /// </summary>
+    public static Nav<List<int>> SelectMultiple(string title, IReadOnlyList<string> items)
+    {
+        if (items.Count == 0)
+        {
+            return Nav<List<int>>.Back;
+        }
+
+        if (Console.IsOutputRedirected || Console.IsInputRedirected)
+        {
+            return SelectMultipleFallback(title, items);
+        }
+
+        // Selection order is tracked explicitly so the first ticked item stays first.
+        var order = new List<int>();
+
+        Console.WriteLine();
+        Console.WriteLine($"{title}  ({items.Count} items)");
+        Console.WriteLine("(Up/Down move, Space toggle, A all/none, Enter confirm | B back, R restart, Esc/Q cancel)");
+
+        var windowHeight = Math.Min(items.Count, Math.Max(3, SafeHeight() - 5));
+        for (var i = 0; i < windowHeight; i++)
+        {
+            Console.WriteLine();
+        }
+
+        var viewTop = Math.Max(0, Console.CursorTop - windowHeight);
+
+        var previousCursorVisible = true;
+        try { previousCursorVisible = Console.CursorVisible; } catch { /* not supported everywhere */ }
+        try { Console.CursorVisible = false; } catch { /* ignore */ }
+
+        var index = 0;
+        var offset = 0;
+
+        try
+        {
+            RenderMulti(items, order, index, offset, windowHeight, viewTop);
+            while (true)
+            {
+                var key = Console.ReadKey(intercept: true).Key;
+                switch (key)
+                {
+                    case ConsoleKey.UpArrow:
+                        index = Math.Max(0, index - 1);
+                        break;
+                    case ConsoleKey.DownArrow:
+                        index = Math.Min(items.Count - 1, index + 1);
+                        break;
+                    case ConsoleKey.PageUp:
+                        index = Math.Max(0, index - windowHeight);
+                        break;
+                    case ConsoleKey.PageDown:
+                        index = Math.Min(items.Count - 1, index + windowHeight);
+                        break;
+                    case ConsoleKey.Home:
+                        index = 0;
+                        break;
+                    case ConsoleKey.End:
+                        index = items.Count - 1;
+                        break;
+
+                    case ConsoleKey.Spacebar:
+                        Toggle(order, index);
+                        break;
+                    case ConsoleKey.A:
+                        if (order.Count == items.Count)
+                        {
+                            order.Clear();
+                        }
+                        else
+                        {
+                            for (var i = 0; i < items.Count; i++)
+                            {
+                                if (!order.Contains(i)) order.Add(i);
+                            }
+                        }
+                        break;
+
+                    case ConsoleKey.Enter:
+                        var chosen = order.Count > 0 ? new List<int>(order) : new List<int> { index };
+                        return Nav<List<int>>.FromValue(chosen);
+
+                    case ConsoleKey.LeftArrow:
+                    case ConsoleKey.Backspace:
+                    case ConsoleKey.B:
+                        return Nav<List<int>>.Back;
+                    case ConsoleKey.R:
+                        return Nav<List<int>>.Restart;
+                    case ConsoleKey.Escape:
+                    case ConsoleKey.Q:
+                        return Nav<List<int>>.Quit;
+
+                    default:
+                        continue;
+                }
+
+                if (index < offset)
+                {
+                    offset = index;
+                }
+                else if (index >= offset + windowHeight)
+                {
+                    offset = index - windowHeight + 1;
+                }
+
+                RenderMulti(items, order, index, offset, windowHeight, viewTop);
+            }
+        }
+        finally
+        {
+            try { Console.SetCursorPosition(0, viewTop + windowHeight); } catch { /* ignore */ }
+            try { Console.CursorVisible = previousCursorVisible; } catch { /* ignore */ }
+            Console.WriteLine();
+        }
+    }
+
+    private static void Toggle(List<int> order, int index)
+    {
+        if (!order.Remove(index))
+        {
+            order.Add(index);
+        }
+    }
+
+    private static void RenderMulti(
+        IReadOnlyList<string> items, List<int> order, int selected, int offset, int windowHeight, int viewTop)
+    {
+        var maxWidth = Math.Max(1, SafeWidth() - 1);
+
+        for (var r = 0; r < windowHeight; r++)
+        {
+            try { Console.SetCursorPosition(0, viewTop + r); } catch { /* ignore */ }
+
+            var itemIndex = offset + r;
+            var isSelected = itemIndex == selected;
+
+            string line;
+            if (itemIndex < items.Count)
+            {
+                var marker = isSelected ? ">" : " ";
+                // Ticked items show their 1-based selection order; the "1" is the
+                // sheet whose data drives the column types.
+                var pos = order.IndexOf(itemIndex);
+                var box = pos >= 0 ? $"[{pos + 1}]" : "[ ]";
+                var scroll = ScrollHint(itemIndex, offset, windowHeight, items.Count);
+                line = $" {marker} {box} {items[itemIndex]}{scroll}";
+            }
+            else
+            {
+                line = string.Empty;
+            }
+
+            if (line.Length > maxWidth)
+            {
+                line = line[..maxWidth];
+            }
+
+            line = line.PadRight(maxWidth);
+
+            if (isSelected)
+            {
+                Console.ForegroundColor = ConsoleColor.Black;
+                Console.BackgroundColor = ConsoleColor.Gray;
+            }
+
+            Console.Write(line);
+            Console.ResetColor();
+        }
+    }
+
+    private static Nav<List<int>> SelectMultipleFallback(string title, IReadOnlyList<string> items)
+    {
+        Console.WriteLine();
+        Console.WriteLine(title);
+        for (var i = 0; i < items.Count; i++)
+        {
+            Console.WriteLine($"  {i + 1}. {items[i]}");
+        }
+
+        while (true)
+        {
+            Console.Write(
+                $"Enter number(s) 1-{items.Count} in order, comma-separated (e.g. 2,1) | B back, R restart, Q cancel: ");
+            var input = Console.ReadLine()?.Trim();
+            switch (input?.ToLowerInvariant())
+            {
+                case "b" or "back":
+                    return Nav<List<int>>.Back;
+                case "r" or "restart":
+                    return Nav<List<int>>.Restart;
+                case "q" or "quit" or "cancel" or null or "":
+                    return Nav<List<int>>.Quit;
+            }
+
+            var parts = input!.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var chosen = new List<int>();
+            var ok = true;
+            foreach (var part in parts)
+            {
+                if (int.TryParse(part, out var n) && n >= 1 && n <= items.Count)
+                {
+                    if (!chosen.Contains(n - 1)) chosen.Add(n - 1); // preserve typed order
+                }
+                else
+                {
+                    ok = false;
+                    break;
+                }
+            }
+
+            if (ok && chosen.Count > 0)
+            {
+                return Nav<List<int>>.FromValue(chosen);
+            }
+
+            Console.WriteLine("  ! Enter one or more valid numbers, separated by commas.");
+        }
+    }
+
     private static void Render(
         IReadOnlyList<string> items, int selected, int offset, int windowHeight, int viewTop)
     {

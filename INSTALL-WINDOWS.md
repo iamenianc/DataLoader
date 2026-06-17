@@ -60,9 +60,11 @@ ExcelStage.exe
 …and press **Enter**. From here the program asks you simple questions:
 
 1. **Pick your Excel file** — use the ↑ / ↓ arrow keys, press **Enter**.
-2. **Pick the worksheet** — arrow keys, **Enter**.
+2. **Pick the worksheet(s)** — arrow keys to move, **Space** to tick one or more
+   sheets, then **Enter**. If you tick several, their columns are merged into one
+   table and the **first sheet you tick** decides the column types.
 3. **Type the SQL Server name** (for example `DBPROD-01`).
-4. **Pick the database** — arrow keys, **Enter**.
+4. **Type the database name** exactly as it exists on that server.
 5. **Type a name** for the table.
 6. Review the summary and press **Enter** to load (or **Esc** to cancel).
 
