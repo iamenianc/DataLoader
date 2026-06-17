@@ -78,6 +78,7 @@ That's it. It signs in to SQL Server using your normal Windows account.
 | "Windows protected your PC"                | Click **More info → Run anyway**.                         |
 | Your file isn't in the list                | Make sure it's a `.xlsx`/`.xlsm` in that folder (`.xlsb` won't work — re-save as `.xlsx`). |
 | Login / "cannot open database" errors       | Check the server and database names are typed exactly, and that your Windows account has access to them. |
+| "the 'db_upload' schema does not exist"      | Ask your DBA to create it once in that database: `CREATE SCHEMA [db_upload];` |
 
 ---
 

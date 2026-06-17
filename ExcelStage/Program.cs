@@ -109,7 +109,31 @@ try
                 var connectionString = Sql.BuildConnectionString(server!, database!);
                 Console.WriteLine();
                 Console.WriteLine("Connecting and creating the staging table...");
-                var inserted = StagingLoader.Load(connectionString, tableName, columns!, sheet!);
+
+                int inserted;
+                try
+                {
+                    inserted = StagingLoader.Load(connectionString, tableName, columns!, sheet!);
+                }
+                catch (SchemaMissingException ex)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("  ! Nothing was written - the staging schema is missing.");
+                    Console.WriteLine($"    {ex.Message}");
+                    Console.WriteLine("    Press B to choose a different database, or Q to quit.");
+                    step = Step.Database;
+                    continue;
+                }
+                catch (SqlException ex)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("  ! Nothing was written - could not connect or use that database.");
+                    Console.WriteLine($"    Reason: {ex.Message.Trim()}");
+                    Console.WriteLine("    Check the server and database names are typed exactly and that");
+                    Console.WriteLine("    your account has access. Press B to re-enter them, or Q to quit.");
+                    step = Step.Database;
+                    continue;
+                }
 
                 Console.WriteLine();
                 Console.WriteLine("Done.");

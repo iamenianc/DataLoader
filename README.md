@@ -13,7 +13,8 @@ It deliberately does only one thing:
 
 The table is created as `db_upload.tmp_<your-login>_<name-you-choose>` so each
 person's staging tables stay separate. The `db_upload` schema is fixed and can
-never be changed.
+never be changed; it must already exist in the target database (the tool
+verifies this and tells you if it's missing rather than trying to create it).
 
 > **Not a developer?** See **[INSTALL-WINDOWS.md](INSTALL-WINDOWS.md)** for the
 > no-install, download-one-file-and-run guide.

@@ -31,7 +31,7 @@ public static class StagingLoader
         using var connection = new SqlConnection(connectionString);
         connection.Open();
 
-        EnsureSchema(connection);
+        VerifySchemaExists(connection);
         CreateTable(connection, tableName, columns);
 
         var table = BuildDataTable(columns, sheet);
@@ -40,16 +40,23 @@ public static class StagingLoader
         return table.Rows.Count;
     }
 
-    private static void EnsureSchema(SqlConnection connection)
+    // The fixed schema must already exist in the target database. We never create
+    // or alter it here; if it is missing we stop and tell the user, rather than
+    // silently doing nothing or failing on a permission error.
+    private static void VerifySchemaExists(SqlConnection connection)
     {
-        const string sql = """
-            IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = @schema)
-                EXEC('CREATE SCHEMA [db_upload]');
-            """;
+        const string sql = "SELECT 1 FROM sys.schemas WHERE name = @schema;";
 
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@schema", SchemaName);
-        command.ExecuteNonQuery();
+        var found = command.ExecuteScalar();
+
+        if (found is null)
+        {
+            throw new SchemaMissingException(
+                $"The '{SchemaName}' schema does not exist in database '{connection.Database}'. " +
+                $"Ask your DBA to create it (CREATE SCHEMA [{SchemaName}];) and try again.");
+        }
     }
 
     private static void CreateTable(SqlConnection connection, string tableName, IReadOnlyList<InferredColumn> columns)
@@ -132,4 +139,13 @@ public static class StagingLoader
         SqlDbType.DateTime2 => typeof(DateTime),
         _ => typeof(string)
     };
+}
+
+/// <summary>
+/// Raised when the fixed <c>db_upload</c> schema does not exist in the chosen
+/// database, so the load cannot proceed.
+/// </summary>
+public sealed class SchemaMissingException : Exception
+{
+    public SchemaMissingException(string message) : base(message) { }
 }
