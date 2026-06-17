@@ -10,6 +10,8 @@ namespace ExcelStage;
 /// </summary>
 public static class StagingLoader
 {
+    // The staging schema is fixed and must NEVER be user-supplied or overridden.
+    // It is the single source of truth for every schema-qualified statement below.
     public const string SchemaName = "db_upload";
 
     public static int Load(
@@ -18,6 +20,14 @@ public static class StagingLoader
         IReadOnlyList<InferredColumn> columns,
         ExcelSheet sheet)
     {
+        // Safety guard: refuse to run if the fixed schema is ever anything other
+        // than "db_upload" (e.g. a future edit accidentally changes the constant).
+        if (!string.Equals(SchemaName, "db_upload", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to run: the staging schema must be 'db_upload' but was '{SchemaName}'.");
+        }
+
         using var connection = new SqlConnection(connectionString);
         connection.Open();
 
