@@ -10,6 +10,8 @@ namespace ExcelStage;
 /// </summary>
 public static class StagingLoader
 {
+    // The staging schema is fixed and must NEVER be user-supplied or overridden.
+    // It is the single source of truth for every schema-qualified statement below.
     public const string SchemaName = "db_upload";
 
     public static int Load(
@@ -18,10 +20,18 @@ public static class StagingLoader
         IReadOnlyList<InferredColumn> columns,
         ExcelSheet sheet)
     {
+        // Safety guard: refuse to run if the fixed schema is ever anything other
+        // than "db_upload" (e.g. a future edit accidentally changes the constant).
+        if (!string.Equals(SchemaName, "db_upload", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to run: the staging schema must be 'db_upload' but was '{SchemaName}'.");
+        }
+
         using var connection = new SqlConnection(connectionString);
         connection.Open();
 
-        EnsureSchema(connection);
+        VerifySchemaExists(connection);
         CreateTable(connection, tableName, columns);
 
         var table = BuildDataTable(columns, sheet);
@@ -30,16 +40,23 @@ public static class StagingLoader
         return table.Rows.Count;
     }
 
-    private static void EnsureSchema(SqlConnection connection)
+    // The fixed schema must already exist in the target database. We never create
+    // or alter it here; if it is missing we stop and tell the user, rather than
+    // silently doing nothing or failing on a permission error.
+    private static void VerifySchemaExists(SqlConnection connection)
     {
-        const string sql = """
-            IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = @schema)
-                EXEC('CREATE SCHEMA [db_upload]');
-            """;
+        const string sql = "SELECT 1 FROM sys.schemas WHERE name = @schema;";
 
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@schema", SchemaName);
-        command.ExecuteNonQuery();
+        var found = command.ExecuteScalar();
+
+        if (found is null)
+        {
+            throw new SchemaMissingException(
+                $"The '{SchemaName}' schema does not exist in database '{connection.Database}'. " +
+                $"Ask your DBA to create it (CREATE SCHEMA [{SchemaName}];) and try again.");
+        }
     }
 
     private static void CreateTable(SqlConnection connection, string tableName, IReadOnlyList<InferredColumn> columns)
@@ -122,4 +139,13 @@ public static class StagingLoader
         SqlDbType.DateTime2 => typeof(DateTime),
         _ => typeof(string)
     };
+}
+
+/// <summary>
+/// Raised when the fixed <c>db_upload</c> schema does not exist in the chosen
+/// database, so the load cannot proceed.
+/// </summary>
+public sealed class SchemaMissingException : Exception
+{
+    public SchemaMissingException(string message) : base(message) { }
 }

@@ -77,7 +77,8 @@ That's it. It signs in to SQL Server using your normal Windows account.
 | "is not recognized as a command"           | Make sure `ExcelStage.exe` is in the folder you opened cmd in. |
 | "Windows protected your PC"                | Click **More info → Run anyway**.                         |
 | Your file isn't in the list                | Make sure it's a `.xlsx`/`.xlsm` in that folder (`.xlsb` won't work — re-save as `.xlsx`). |
-| "Could not list databases" / login errors  | Your Windows account needs access to that SQL Server / database. |
+| Login / "cannot open database" errors       | Check the server and database names are typed exactly, and that your Windows account has access to them. |
+| "the 'db_upload' schema does not exist"      | Ask your DBA to create it once in that database: `CREATE SCHEMA [db_upload];` |
 
 ---
 

@@ -11,8 +11,10 @@ It deliberately does only one thing:
 4. Creates the table in the `db_upload` schema (dropping any old copy first).
 5. Bulk-loads every row with `SqlBulkCopy`.
 
-The table is created as `db_upload.<your-login>_<name-you-choose>` so each
-person's staging tables stay separate.
+The table is created as `db_upload.tmp_<your-login>_<name-you-choose>` so each
+person's staging tables stay separate. The `db_upload` schema is fixed and can
+never be changed; it must already exist in the target database (the tool
+verifies this and tells you if it's missing rather than trying to create it).
 
 > **Not a developer?** See **[INSTALL-WINDOWS.md](INSTALL-WINDOWS.md)** for the
 > no-install, download-one-file-and-run guide.
@@ -32,9 +34,9 @@ It guides you step by step:
 | ------------------ | ----------------------------------------------------------------------- |
 | Excel workbook     | Pick from the `.xlsx` / `.xlsm` / `.xlsb` files in the current folder (Up/Down arrows, Enter), or choose "Enter a path manually" |
 | Worksheet          | Pick from the workbook's sheets with the arrow keys (auto-selected if there's only one) |
-| SQL Server         | Type the server name, e.g. `DBPROD-01` or `localhost\SQLEXPRESS`         |
-| Database           | Pick from the databases on that server with the arrow keys, or enter one manually |
-| Staging table name | Type a name — your login is prefixed automatically                      |
+| SQL Server         | Type the exact server name, e.g. `DBPROD-01` or `localhost\SQLEXPRESS`   |
+| Database           | Type the exact database name as it exists on that server                 |
+| Staging table name | Type a name — it's prefixed with `tmp_` and your login automatically     |
 
 In every list: **Up/Down** moves, **Enter** confirms, **Esc** cancels. Before
 anything is written it shows a full confirmation summary (workbook, worksheet,

@@ -62,7 +62,8 @@ try
 
             case Step.Server:
             {
-                var r = PromptNav("SQL Server name / instance", "e.g. DBPROD-01  or  localhost\\SQLEXPRESS");
+                var r = PromptNav("SQL Server name / instance",
+                    "Type the exact server name, e.g. DBPROD-01  or  localhost\\SQLEXPRESS");
                 if (r.Kind == NavKind.Quit) return Cancelled();
                 if (r.Kind == NavKind.Restart) { step = Step.File; continue; }
                 if (r.Kind == NavKind.Back) { step = Step.Worksheet; continue; }
@@ -73,9 +74,8 @@ try
 
             case Step.Database:
             {
-                Console.WriteLine();
-                Console.WriteLine($"Connecting to '{server}' to list databases...");
-                var r = SelectDatabase(server!);
+                var r = PromptNav("Database name",
+                    "Type the exact database name as it exists on the server");
                 if (r.Kind == NavKind.Quit) return Cancelled();
                 if (r.Kind == NavKind.Restart) { step = Step.File; continue; }
                 if (r.Kind == NavKind.Back) { step = Step.Server; continue; }
@@ -87,7 +87,7 @@ try
             case Step.Table:
             {
                 var r = PromptNav("Staging table name",
-                    $"Your login ('{login}') will be added automatically so the table is yours");
+                    $"It will be prefixed with 'tmp_' and your login ('{login}'), so the table is yours");
                 if (r.Kind == NavKind.Quit) return Cancelled();
                 if (r.Kind == NavKind.Restart) { step = Step.File; continue; }
                 if (r.Kind == NavKind.Back) { step = Step.Database; continue; }
@@ -98,7 +98,7 @@ try
 
             case Step.Confirm:
             {
-                var tableName = $"{login}_{SanitizeLogin(baseName!)}";
+                var tableName = $"tmp_{login}_{SanitizeLogin(baseName!)}";
                 PrintSummary(excelPath!, worksheet!, server!, database!, tableName, columns!.Count, sheet!.Rows.Count);
 
                 var r = ConfirmNav();
@@ -109,7 +109,31 @@ try
                 var connectionString = Sql.BuildConnectionString(server!, database!);
                 Console.WriteLine();
                 Console.WriteLine("Connecting and creating the staging table...");
-                var inserted = StagingLoader.Load(connectionString, tableName, columns!, sheet!);
+
+                int inserted;
+                try
+                {
+                    inserted = StagingLoader.Load(connectionString, tableName, columns!, sheet!);
+                }
+                catch (SchemaMissingException ex)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("  ! Nothing was written - the staging schema is missing.");
+                    Console.WriteLine($"    {ex.Message}");
+                    Console.WriteLine("    Press B to choose a different database, or Q to quit.");
+                    step = Step.Database;
+                    continue;
+                }
+                catch (SqlException ex)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("  ! Nothing was written - could not connect or use that database.");
+                    Console.WriteLine($"    Reason: {ex.Message.Trim()}");
+                    Console.WriteLine("    Check the server and database names are typed exactly and that");
+                    Console.WriteLine("    your account has access. Press B to re-enter them, or Q to quit.");
+                    step = Step.Database;
+                    continue;
+                }
 
                 Console.WriteLine();
                 Console.WriteLine("Done.");
@@ -210,51 +234,6 @@ static Nav<string> SelectWorksheet(string path)
 
     var choice = Menu.Select("Select a worksheet:", names);
     return choice.IsValue ? Nav<string>.FromValue(names[choice.Value]) : choice.Carry<string>();
-}
-
-static Nav<string> SelectDatabase(string server)
-{
-    List<string> databases;
-    try
-    {
-        databases = Sql.ListDatabases(server);
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine("  ! Could not list databases automatically.");
-        Console.WriteLine($"    Reason: {Describe(ex)}");
-        Console.WriteLine("    You can still type the database name to continue.");
-        return PromptNav("Database name", "Type the database name to use");
-    }
-
-    if (databases.Count == 0)
-    {
-        Console.WriteLine("  ! No databases were returned for your login.");
-        return PromptNav("Database name", "Type the database name to use");
-    }
-
-    var options = new List<string>(databases) { "Enter a name manually..." };
-    while (true)
-    {
-        var choice = Menu.Select("Select a database:", options);
-        if (!choice.IsValue)
-        {
-            return choice.Carry<string>();
-        }
-
-        if (choice.Value == options.Count - 1)
-        {
-            var manual = PromptNav("Database name", "Type the database name to use");
-            if (manual.Kind == NavKind.Back)
-            {
-                continue; // back to the database list
-            }
-
-            return manual;
-        }
-
-        return Nav<string>.FromValue(databases[choice.Value]);
-    }
 }
 
 static bool IsExcelWorkbook(string path)
@@ -426,24 +405,6 @@ static Nav<bool> ConfirmNav()
                 return Nav<bool>.Quit;
         }
     }
-}
-
-// Builds a readable reason from an exception chain, falling back to the type
-// name when a message is empty (so the reason line is never blank).
-static string Describe(Exception ex)
-{
-    var parts = new List<string>();
-    Exception? current = ex;
-    while (current is not null)
-    {
-        var message = string.IsNullOrWhiteSpace(current.Message)
-            ? current.GetType().Name
-            : current.Message.Trim();
-        parts.Add(message);
-        current = current.InnerException;
-    }
-
-    return string.Join("  ->  ", parts);
 }
 
 static string CleanPath(string raw)
