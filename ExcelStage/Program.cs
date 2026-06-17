@@ -9,7 +9,7 @@ PrintBanner();
 try
 {
     string? excelPath = null;
-    string? worksheet = null;
+    List<string>? worksheets = null;
     string? server = null;
     string? database = null;
     string? baseName = null;
@@ -34,27 +34,38 @@ try
 
             case Step.Worksheet:
             {
-                var r = SelectWorksheet(excelPath!);
+                var r = SelectWorksheets(excelPath!);
                 if (r.Kind == NavKind.Quit) return Cancelled();
                 if (r.Kind is NavKind.Restart or NavKind.Back) { step = Step.File; continue; }
-                worksheet = r.Value;
+                worksheets = r.Value;
 
                 Console.WriteLine();
-                Console.WriteLine($"Reading '{Path.GetFileName(excelPath)}' / '{worksheet}'...");
+                Console.WriteLine($"Reading {worksheets!.Count} worksheet(s) from '{Path.GetFileName(excelPath)}'...");
                 try
                 {
-                    sheet = ExcelReader.Read(excelPath!, worksheet!);
+                    var loaded = new List<ExcelSheet>(worksheets.Count);
+                    foreach (var name in worksheets)
+                    {
+                        Console.WriteLine($"  - {name}");
+                        loaded.Add(ExcelReader.Read(excelPath!, name));
+                    }
+
+                    // Columns are unioned across sheets; types come from the first
+                    // selected sheet that contains each column.
+                    Console.WriteLine("Inferring SQL column types and merging sheets...");
+                    var combined = SheetCombiner.Combine(loaded);
+                    sheet = combined.Sheet;
+                    columns = combined.Columns;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"  ! Could not read that worksheet: {ex.Message}");
-                    Console.WriteLine("    Pick another worksheet, or press B to choose a different file.");
+                    Console.WriteLine($"  ! Could not read those worksheets: {ex.Message}");
+                    Console.WriteLine("    Pick again, or press B to choose a different file.");
                     continue; // stay on the worksheet step
                 }
 
-                Console.WriteLine($"  Found {sheet.Headers.Count} column(s) and {sheet.Rows.Count} data row(s).");
-                Console.WriteLine("Inferring SQL column types from the data...");
-                columns = ColumnTypeInferrer.Infer(sheet);
+                Console.WriteLine(
+                    $"  {columns!.Count} column(s) and {sheet!.Rows.Count} data row(s) across {worksheets.Count} sheet(s).");
                 PrintColumnSummary(columns);
                 step = Step.Server;
                 continue;
@@ -99,7 +110,7 @@ try
             case Step.Confirm:
             {
                 var tableName = $"tmp_{login}_{SanitizeLogin(baseName!)}";
-                PrintSummary(excelPath!, worksheet!, server!, database!, tableName, columns!.Count, sheet!.Rows.Count);
+                PrintSummary(excelPath!, worksheets!, server!, database!, tableName, columns!.Count, sheet!.Rows.Count);
 
                 var r = ConfirmNav();
                 if (r.Kind == NavKind.Quit) return Cancelled();
@@ -224,7 +235,7 @@ static Nav<string> SelectExcelFile()
     }
 }
 
-static Nav<string> SelectWorksheet(string path)
+static Nav<List<string>> SelectWorksheets(string path)
 {
     var names = ExcelReader.GetWorksheetNames(path);
     if (names.Count == 0)
@@ -232,8 +243,20 @@ static Nav<string> SelectWorksheet(string path)
         throw new InvalidDataException("The workbook does not contain any worksheets.");
     }
 
-    var choice = Menu.Select("Select a worksheet:", names);
-    return choice.IsValue ? Nav<string>.FromValue(names[choice.Value]) : choice.Carry<string>();
+    // Only one sheet - nothing to choose, take it.
+    if (names.Count == 1)
+    {
+        return Nav<List<string>>.FromValue(new List<string> { names[0] });
+    }
+
+    var choice = Menu.SelectMultiple(
+        "Select one or more worksheets (the 1st you tick sets the column types):", names);
+    if (!choice.IsValue)
+    {
+        return choice.Carry<List<string>>();
+    }
+
+    return Nav<List<string>>.FromValue(choice.Value!.Select(i => names[i]).ToList());
 }
 
 static bool IsExcelWorkbook(string path)
@@ -279,15 +302,19 @@ static void PrintColumnSummary(List<InferredColumn> columns)
 }
 
 static void PrintSummary(
-    string excelPath, string worksheet, string server, string database,
+    string excelPath, IReadOnlyList<string> worksheets, string server, string database,
     string tableName, int columnCount, int rowCount)
 {
+    var sheetsText = worksheets.Count == 1
+        ? worksheets[0]
+        : $"{worksheets.Count} sheets (types from '{worksheets[0]}'): {string.Join(", ", worksheets)}";
+
     Console.WriteLine();
     Console.WriteLine("======================================================");
     Console.WriteLine(" Please confirm - about to commit the following:");
     Console.WriteLine("======================================================");
     Console.WriteLine($"  Workbook    : {Path.GetFileName(excelPath)}");
-    Console.WriteLine($"  Worksheet   : {worksheet}");
+    Console.WriteLine($"  Worksheet(s): {sheetsText}");
     Console.WriteLine($"  Server      : {server}");
     Console.WriteLine($"  Database    : {database}");
     Console.WriteLine($"  Schema      : {StagingLoader.SchemaName}");
